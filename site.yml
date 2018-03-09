@@ -1,0 +1,79 @@
+---
+## This playbook deploys the whole application stack in this site.
+
+# Configure and deploy database servers.
+- hosts: tag_Name_WinSrvJLdb
+  connection: winrm
+
+  vars:
+    ansible_ssh_port: 5986
+    ansible_ssh_user: administrator
+    ansible_ssh_pass: password
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+
+  roles:
+  - mssql
+
+  tags:
+  - db
+
+# Configure and deploy the web servers. Note that we include two roles here,
+# the 'base-apache' role which simply sets up Apache, and 'web' which includes
+# our example web application.
+- hosts: tag_Name_WinSrvJLweb
+  connection: winrm
+
+  vars:
+    ansible_ssh_port: 5986
+    ansible_ssh_user: administrator
+    ansible_ssh_pass: password
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+
+  roles:
+  - iis
+  - web
+
+  tags:
+  - web
+
+# Configure and deploy the load balancer(s).
+- hosts: localhost
+  connection: local
+  gather_facts: False
+
+  roles:
+   - elb
+
+  tags:
+  - lb
+
+# Add the webservers to the load balancer(s)
+- hosts: tag_Name_WinSrvJLweb
+  connection: winrm
+  gather_facts: False
+
+  vars:
+    ansible_ssh_port: 5986
+    ansible_ssh_user: administrator
+    ansible_ssh_pass: password
+    ansible_connection: winrm
+    ansible_winrm_server_cert_validation: ignore
+
+  tasks:
+
+  - name: Wait for webserver to come up
+    local_action: wait_for host={{ inventory_hostname }} port=80 state=started timeout=80
+
+  - name: Add host to load balancing pool
+    local_action:
+      module: ec2_elb
+      region: us-east-2
+      instance_id: "{{ ec2_id }}"
+      ec2_elbs: "ansible-windows-demo-lb"
+      wait_timeout: 330
+      state: 'present'
+
+  tags:
+  - lb
